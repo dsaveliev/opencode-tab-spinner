@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1 — 2026-10-01
+
+Hardening pass (4-axis review + improve-codebase-architecture skill scan).
+
+- Title-writer adapter: held fd across frames (no per-frame open/close),
+  dedup on successful writes only, permanent disable after 10 consecutive
+  failures — a dead TTY never leaves a spinning writer behind
+- `timer.unref()` — the plugin can never hold the host event loop open
+- Event handler wrapped in try/catch: a hostile payload is logged as
+  HANDLER-ERROR instead of throwing into the host's dispatch
+- Test isolation: suites reset all TAB_SPINNER_* variables (user shell
+  exports no longer leak into tests)
+- Tests 26/26 (new: dead-writer guard, hostile payload)
+
 ## 1.0.0 — 2026-10-01
 
 First public release.

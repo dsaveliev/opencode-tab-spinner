@@ -112,12 +112,16 @@ START:  message.* events while armed (stragglers after a stop are ignored
 STOP+DISARM: session.status idle | session.idle | session.error  (instant)
 STOP (visual only, gate stays armed): silence > SILENCE_MS — the model
         produces no events during reasoning; first delta restarts instantly
+WRITER: held fd; dedup on success only; >=10 consecutive write failures
+        disable the writer permanently (dead TTY guard); handler body is
+        try/catch-wrapped — hostile payloads never throw into the host
 ```
 
 ## Testing Strategy
 
 - `node:test`, tests in `test/`, no external runner or dev dependencies.
-- **Unit (all CI):** state machine transitions, dupe-user guard, silence
+- **Unit (all CI):** state machine transitions, dupe-user guard, silence,
+  dead-writer guard, hostile-payload isolation; suites reset TAB_SPINNER_*
   semantics, env parsing/validation/sanitization, headless guard (unwritable
   TTY never throws), project-name fallback.
 - **Manual e2e (documented recipe, not CI):** `TAB_SPINNER_TTY=/tmp/x

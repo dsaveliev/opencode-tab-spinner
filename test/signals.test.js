@@ -15,8 +15,12 @@ const tmp = mkdtempSync(join(tmpdir(), 'tab-spinner-sig-'))
 const active = []
 const track = (h) => { active.push(h); return h }
 
+const ENV_KEYS = ['TAB_SPINNER_TTY', 'TAB_SPINNER_LOG', 'TAB_SPINNER_FRAMES',
+  'TAB_SPINNER_IDLE', 'TAB_SPINNER_FRAME_MS', 'TAB_SPINNER_TITLE',
+  'TAB_SPINNER_TITLE_IDLE', 'TAB_SPINNER_SILENCE_MS', 'TAB_SPINNER_DEBUG']
+
 async function load(tty, tag) {
-  const prev = { ...process.env }
+  for (const k of ENV_KEYS) delete process.env[k]
   process.env.TAB_SPINNER_TTY = tty
   process.env.TAB_SPINNER_LOG = ''
   const mod = await import(`${PLUGIN}?sig=${tag}-${Math.random()}`)
