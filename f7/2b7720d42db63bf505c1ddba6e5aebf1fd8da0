@@ -1,0 +1,21 @@
+package.json
+  s_3c41dc1cac8214::t_bd70fed4120fcc 2-4,6-42
+.gitignore
+  s_3c41dc1cac8214::t_d8b15d0294e44d 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "f72b7720d42db63bf505c1ddba6e5aebf1fd8da0",
+  "prompts": {},
+  "sessions": {
+    "s_3c41dc1cac8214": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f09674612ffejyooQUYZuYzaQU",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "Dima Savelyev <dmitrii.savelyev@deliveryhero.com>"
+    }
+  }
+}
