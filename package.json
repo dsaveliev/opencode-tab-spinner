@@ -1,0 +1,7 @@
+{
+  "name": "tab-spinner",
+  "private": true,
+  "type": "module",
+  "main": "tab-spinner.js",
+  "exports": { ".": "./tab-spinner.js" }
+}
