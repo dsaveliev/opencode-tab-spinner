@@ -256,13 +256,29 @@ async function case14_dupe_user_update_no_rearm() {
   console.log('ok  14 - дубль старого user-msg не взводит; новый id взводит')
 }
 
+async function case15_esc_in_project_name_sanitized() {
+  const tty = join(tmp, 'esc.bin')
+  const TabSpinner = await loadPlugin(tty, 'esc')
+  const hooks = track(await TabSpinner({ directory: '/x/at\x1b\x07las' }))
+  await hooks.event({ event: { type: 'message.part.delta', properties: {} } })
+  await sleep(250)
+  const raw = readFileSync(tty, 'utf8')
+  const m = raw.match(/\x1b\]0;([^\x07]*)\x07/)
+  assert.ok(m, 'титул записан')
+  assert.ok(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] atlas$/.test(m[1]),
+    `имя проекта очищено от ESC/BEL: ${JSON.stringify(m[1])}`)
+  assert.ok(!raw.includes('at\x1b'), 'сырой ESC не попал в поток')
+  console.log('ok  15 - ESC/BEL в имени каталога санитизируется')
+}
+
 for (const c of [case1_probe_on_part_updated, case2_probe_on_message_updated,
                  case3_headless_guard, case4_project_fallback,
                  case5_busy_events_animate_frames, case6_idle_stops_and_writes_check,
                  case7_error_stops_animation, case8_no_stacked_intervals,
                  case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop,
                  case11_post_idle_straggler_no_restart, case12_user_message_rearms,
-                 case13_silence_keeps_armed, case14_dupe_user_update_no_rearm]) {
+                 case13_silence_keeps_armed, case14_dupe_user_update_no_rearm,
+                 case15_esc_in_project_name_sanitized]) {
   try { await c() }
   catch (e) { failed++; console.error(`FAIL ${c.name}: ${e.message}`) }
 }

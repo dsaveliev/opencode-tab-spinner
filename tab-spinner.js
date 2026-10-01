@@ -71,7 +71,8 @@ function title(text) {
 
 export const TabSpinner = async ({ directory }) => {
   const parts = String(directory ?? "").split("/").filter(Boolean)
-  const project = parts[parts.length - 1] || "opencode"
+  // санитизация: ESC/BEL из имени каталога не должны ломать OSC-последовательность
+  const project = (parts[parts.length - 1] || "opencode").replace(/[\x1b\x07]/g, "")
   dbg(`loaded, directory=${directory}, TTY=${TTY}`)
 
   let timer = null
