@@ -23,7 +23,7 @@
 //     конце), не per-ход; статус-события в TUI ЕСТЬ;
 //   - дельты текут и во время исполнения инструмента (1023 шт за 18с);
 //   - единственные «тихие» окна — reasoning-фазы (~10с).
-const SILENCE_MS = Number(process.env.TAB_SPINNER_SILENCE_MS || 20000)
+const SILENCE_MS = Number(process.env.TAB_SPINNER_SILENCE_MS || 12000)
 //
 // ДИАГНОСТИКА: каждый session/message-событие пишется в TAB_SPINNER_LOG
 // (умолч. /tmp/tab-spinner-events.log) — снимок реального потока TUI для
@@ -52,12 +52,16 @@ if (LOG) {
   } catch { /* файла ещё нет — норма */ }
 }
 
-function logEvent(type, sid) {
+function logEvent(type, sid, extra = "") {
   if (!LOG) return
-  try { appendFileSync(LOG, `${Date.now()} ${type} ${sid}\n`) } catch {}
+  try { appendFileSync(LOG, `${Date.now()} pid=${process.pid} ${type}${extra} ${sid}\n`) } catch {}
 }
 
+let lastTitle = ""
 function title(text) {
+  if (text === lastTitle) return // дедуп: 12 idle подряд не пишут 12 ✓
+  lastTitle = text
+  logEvent("TITLE", "-", `='${text}'`)
   try {
     appendFileSync(TTY, `\x1b]0;${text}\x07`)
     dbg(`title: ${text}`)
@@ -80,6 +84,7 @@ export const TabSpinner = async ({ directory }) => {
     lastBusyAt = Date.now()
     if (timer) return
     frame_i = 0
+    logEvent("START", "-")
     timer = setInterval(() => {
       if (Date.now() - lastBusyAt > SILENCE_MS) {
         stop("silence", false) // визуальный стоп без разряда: reasoning-фаза
@@ -95,6 +100,7 @@ export const TabSpinner = async ({ directory }) => {
     if (timer) {
       clearInterval(timer)
       timer = null
+      logEvent("STOP", "-", `(${reason}${disarm ? ",disarm" : ""})`)
       dbg(`animation stopped (${reason})`)
     }
     if (disarm) armed = false
@@ -112,8 +118,10 @@ export const TabSpinner = async ({ directory }) => {
 
       if (type === "session.status") {
         const status = p.status?.type
+        logEvent(type, sid, `:${status ?? "?"}`)
         if (status === "busy") {
           armed = true
+          logEvent("ARM", sid, "=status-busy")
           start()
         } else if (status === "idle") {
           stop("status=idle")
@@ -126,6 +134,7 @@ export const TabSpinner = async ({ directory }) => {
       }
       if (type === "message.updated" && p.info?.role === "user") {
         armed = true // новое пользовательское сообщение = новый ход
+        logEvent("ARM", sid, "=user-msg")
         start()
         return
       }

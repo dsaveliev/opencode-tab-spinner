@@ -12,11 +12,15 @@ const PLUGIN_URL = new URL('./tab-spinner.js', import.meta.url).href
 async function loadPlugin(tty, tag, silenceMs) {
   const prev = process.env.TAB_SPINNER_TTY
   const prevSil = process.env.TAB_SPINNER_SILENCE_MS
+  const prevLog = process.env.TAB_SPINNER_LOG
   process.env.TAB_SPINNER_TTY = tty
+  process.env.TAB_SPINNER_LOG = "" // изоляция: тесты не пишут в общий лог
   if (silenceMs !== undefined) process.env.TAB_SPINNER_SILENCE_MS = String(silenceMs)
-  const mod = await import(`${PLUGIN_URL}?case=${tag}-${silenceMs ?? ''}`)
+  const mod = await import(`${PLUGIN_URL}?case=${tag}-${silenceMs ?? ''}-${Math.random()}`)
   if (prev === undefined) delete process.env.TAB_SPINNER_TTY
   else process.env.TAB_SPINNER_TTY = prev
+  if (prevLog === undefined) delete process.env.TAB_SPINNER_LOG
+  else process.env.TAB_SPINNER_LOG = prevLog
   if (prevSil === undefined) delete process.env.TAB_SPINNER_SILENCE_MS
   else process.env.TAB_SPINNER_SILENCE_MS = prevSil
   return mod.TabSpinner
