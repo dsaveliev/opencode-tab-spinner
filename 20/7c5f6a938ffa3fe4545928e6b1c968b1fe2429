@@ -1,0 +1,38 @@
+src/tab-spinner.js
+  s_3c41dc1cac8214::t_3e672437ab664e 166,179-181
+  s_3c41dc1cac8214::t_549adbc29c86c7 109-145,154
+  s_3c41dc1cac8214::t_b4c6302f941716 196-212,214-215,218-238,240-242
+  s_3c41dc1cac8214::t_439448cfe8690a 95-96
+  s_3c41dc1cac8214::t_f1778f546db963 48
+test/writer.test.js
+  s_3c41dc1cac8214::t_f6e65ab1b77c7f 1-59,61
+  s_3c41dc1cac8214::t_e69f30b97b1de1 60,62-64
+CHANGELOG.md
+  s_3c41dc1cac8214::t_fd7e3788565a8d 3-16
+SPEC.md
+  s_3c41dc1cac8214::t_a9529e5cfb9d1f 115-117,123-124
+package.json
+  s_3c41dc1cac8214::t_5c607ffc369e3c 3,17,43
+test/headless.test.js
+  s_3c41dc1cac8214::t_fcb70d456f4f5a 17-20,22
+test/signals.test.js
+  s_3c41dc1cac8214::t_0db412bee727fa 18-21,23
+test/state-machine.test.js
+  s_3c41dc1cac8214::t_b3d6c6bb6a352a 19-22,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "207c5f6a938ffa3fe4545928e6b1c968b1fe2429",
+  "prompts": {},
+  "sessions": {
+    "s_3c41dc1cac8214": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f09674612ffejyooQUYZuYzaQU",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "Dima Savelyev <dmitrii.savelyev@deliveryhero.com>"
+    }
+  }
+}
