@@ -129,10 +129,45 @@ async function case8_no_stacked_intervals() {
 const active = []
 const track = (hooks) => { active.push(hooks); return hooks }
 
+async function case9_status_busy_starts_idle_stops() {
+  const tty = join(tmp, 'status.bin')
+  const TabSpinner = await loadPlugin(tty, 'status')
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'busy' } } } })
+  await sleep(300)
+  const mid = readTitles(tty).filter(t => /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Atlas$/.test(t))
+  assert.ok(mid.length >= 2, `session.status busy запускает кадры (есть ${mid.length})`)
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'idle' } } } })
+  const after = readTitles(tty).length
+  await sleep(300)
+  const titles = readTitles(tty)
+  assert.equal(titles[titles.length - 1], '✓ Atlas',
+    'session.status idle мгновенно гасит и пишет ✓')
+  assert.equal(titles.length, after, 'после status=idle кадров нет')
+  console.log('ok  9 - session.status busy/idle — авторитетные границы хода')
+}
+
+async function case10_status_idle_without_busy_is_noop() {
+  const tty = join(tmp, 'noop.bin')
+  const TabSpinner = await loadPlugin(tty, 'noop')
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'idle' } } } })
+  await sleep(300)
+  const titles = readTitles(tty)
+  assert.equal(titles.filter(t => t !== '✓ Atlas').length, 0,
+    'idle без анимации не плодит кадры (один ✓ максимум)')
+  assert.ok(titles.length <= 1, 'ровно один ✓ и ничего больше')
+  console.log('ok  10 - status=idle в idle-состоянии — no-op с одним ✓')
+}
+
 for (const c of [case1_probe_on_part_updated, case2_probe_on_message_updated,
                  case3_headless_guard, case4_project_fallback,
                  case5_busy_events_animate_frames, case6_idle_stops_and_writes_check,
-                 case7_error_stops_animation, case8_no_stacked_intervals]) {
+                 case7_error_stops_animation, case8_no_stacked_intervals,
+                 case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop]) {
   try { await c() }
   catch (e) { failed++; console.error(`FAIL ${c.name}: ${e.message}`) }
 }

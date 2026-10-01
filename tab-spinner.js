@@ -6,9 +6,12 @@
 //   «⠋ Project» — ход активен: кадры ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏, 120 мс/кадр
 //   «✓ Project» — ход закончен (session.idle / session.error)
 //
-// Busy-события: message.part.delta (пер-токенный стрим), message.part.updated,
-// message.updated — старт с первого события, останов только по явному
-// session.idle/session.error. Никаких эвристик тишины.
+// Сигналы (эмпирически проверено на 1.18.x, payloads см. test.mjs):
+//   ПЕРВИЧНЫЙ — session.status {status:{type:"busy"|"idle"}}: авторитетные
+//   границы хода; idle приходит мгновенно на конце (session.idle в TUI
+//   запаздывает по idle-таймеру — на нём одного держать нельзя).
+//   Резерв-старт — message.part.delta (пер-токенный стрим), message.part.updated,
+//   message.updated. Резерв-стоп — session.idle, session.error.
 //
 // Env: TAB_SPINNER_TTY — приёмник титула для тестов (умолч. /dev/tty);
 // TAB_SPINNER_DEBUG=1 — диагностический вывод в stderr.
@@ -21,7 +24,6 @@ const FRAME_MS = 120
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 const BUSY_EVENTS = new Set(["message.part.delta", "message.part.updated", "message.updated"])
 const STOP_EVENTS = new Set(["session.idle", "session.error"])
-
 const dbg = (m) => { if (DBG) console.error(`[tab-spinner] ${m}`) }
 dbg(`module loaded, TTY=${TTY}`)
 
@@ -64,6 +66,15 @@ export const TabSpinner = async ({ directory }) => {
   return {
     event: async ({ event }) => {
       const type = event?.type ?? ""
+      if (type === "session.status") {
+        const status = event?.properties?.status?.type
+        if (status === "busy") {
+          start()
+        } else if (status === "idle") {
+          stop("status=idle")
+        }
+        return
+      }
       if (BUSY_EVENTS.has(type)) {
         start()
       } else if (STOP_EVENTS.has(type)) {
