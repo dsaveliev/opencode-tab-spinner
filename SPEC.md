@@ -1,6 +1,10 @@
 # Spec: opencode-tab-spinner
 
-Status: DRAFT — awaiting owner approval
+Status: IMPLEMENTED — v1.0.0 shipped 2026-10-01. Amendments:
+- plugin loader requires every export to be a plugin factory →
+  test surface attached as TabSpinner properties (single file kept);
+- user message arms the gate only (run-mode straggler fix);
+- config-array resolves registry packages only on 1.18.x (README C).
 
 ## Objective
 
