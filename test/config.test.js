@@ -1,7 +1,8 @@
 // Config layer: presets, custom frames, templates, sanitization, fallbacks.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { parseConfig, renderTemplate, PRESETS } from '../src/tab-spinner.js'
+import { TabSpinner } from '../src/tab-spinner.js'
+const { parseConfig, renderTemplate, PRESETS } = TabSpinner
 
 test('defaults: braille preset, check idle, 120ms, standard templates', () => {
   const c = parseConfig({})

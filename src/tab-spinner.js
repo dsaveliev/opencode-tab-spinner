@@ -22,7 +22,9 @@
 //   session.idle / session.error — fallback stops.
 //
 // State machine:
-//   ARM:         status busy | user message with a new id
+//   ARM:         status busy (arms AND starts) | user message with a new id
+//                (arms the gate only — a real turn is confirmed by busy or
+//                deltas; trailing metadata updates must not resurrect)
 //   START:       message.* events while armed (stragglers after a stop are
 //                ignored until the next ARM)
 //   STOP+DISARM: status idle | session.idle | session.error (instant)
@@ -45,7 +47,7 @@
 
 import { appendFileSync, statSync, writeFileSync } from "node:fs"
 
-export const PRESETS = {
+const PRESETS = {
   braille: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
   dots: ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"],
   ascii: ["|", "/", "-", "\\"],
@@ -64,7 +66,7 @@ const num = (raw, fallback, min, max) => {
   return raw !== undefined && Number.isFinite(n) && n >= min && n <= max ? n : fallback
 }
 
-export function parseConfig(env = process.env) {
+function parseConfig(env = process.env) {
   const rawFrames = stripCtl(env.TAB_SPINNER_FRAMES ?? "").trim()
   let frames = PRESETS.braille
   if (PRESETS[rawFrames]) {
@@ -86,7 +88,7 @@ export function parseConfig(env = process.env) {
   }
 }
 
-export function renderTemplate(tpl, vars) {
+function renderTemplate(tpl, vars) {
   return tpl.replace(/\{(frame|idle|project)\}/g, (_, key) => vars[key])
 }
 
@@ -185,9 +187,12 @@ export const TabSpinner = async ({ directory }) => {
           return
         }
         if (mid) lastUserId = mid
+        // Arms the GATE only, never starts the animation: a real turn is
+        // always confirmed by status:busy or deltas within ~1s, while the
+        // trailing metadata update (fresh/empty id in run mode, ~200ms
+        // after the stop) must not resurrect the spinner by itself.
         armed = true
-        logEvent("ARM", sid, "=user-msg")
-        start()
+        logEvent("ARM", sid, "=user-msg(gate)")
         return
       }
       if (type === "message.part.delta" || type === "message.part.updated" || type === "message.updated") {
@@ -200,5 +205,12 @@ export const TabSpinner = async ({ directory }) => {
     },
   }
 }
+
+// Test surface: attached as properties so the file keeps exactly two
+// exports (TabSpinner + default). opencode's plugin loader skips the whole
+// file if any export is not a plugin factory.
+TabSpinner.parseConfig = parseConfig
+TabSpinner.renderTemplate = renderTemplate
+TabSpinner.PRESETS = PRESETS
 
 export default TabSpinner

@@ -83,6 +83,29 @@ test('straggler message events after a stop are ignored until the next ARM', asy
   assert.equal(titles[titles.length - 1], '✓ Atlas')
 })
 
+test('REGRESSION: user message after a stop arms the gate but does NOT start the animation (run-mode straggler)', async () => {
+  // Journal rehearsal: STOP(status=idle) -> idle title -> 200ms later a
+  // role=user update arrives; in run mode it may carry a fresh/empty id.
+  // It must arm the gate (a real turn follows) but never spin by itself.
+  const tty = join(tmp, 'g.bin')
+  const hooks = track(await (await load(tty, 'straggler2'))({ directory: '/x/Atlas' }))
+  await hooks.event(STATUS('busy', 's1'))
+  await sleep(200)
+  await hooks.event(STATUS('idle', 's1'))
+  const after = readTitles(tty).length
+  await sleep(120)
+  await hooks.event(ev('message.updated', { info: { id: 'msg_z', role: 'user' }, sessionID: 's1' }))
+  await sleep(500)
+  let titles = readTitles(tty)
+  assert.equal(titles.length, after, 'user message alone does not spin')
+  assert.equal(titles[titles.length - 1], '✓ Atlas')
+  // ...but the gate is armed: the first delta of the real turn starts frames
+  await hooks.event(ev('message.part.delta', { sessionID: 's1' }))
+  await sleep(300)
+  titles = readTitles(tty)
+  assert.ok(titles.some(t => FRAME_RE.test(t)), 'armed gate lets the first delta start frames')
+})
+
 test('a NEW user message id arms a new turn', async () => {
   const tty = join(tmp, 'e.bin')
   const hooks = track(await (await load(tty, 'rearm'))({ directory: '/x/Atlas' }))
@@ -108,9 +131,10 @@ test('REGRESSION: duplicate update of the OLD user message must not re-arm', asy
   let titles = readTitles(tty)
   assert.equal(titles.length, after, 'duplicate id does not restart')
   assert.equal(titles[titles.length - 1], '✓ Atlas')
-  // ...while a genuinely new id does
+  // ...while a genuinely new id arms the gate and the first delta spins
   await hooks.event(ev('message.updated', { info: { id: 'msg_B', role: 'user' }, sessionID: 's1' }))
+  await hooks.event(ev('message.part.delta', { sessionID: 's1' }))
   await sleep(300)
   titles = readTitles(tty)
-  assert.ok(titles.some(t => FRAME_RE.test(t)), 'new id arms')
+  assert.ok(titles.some(t => FRAME_RE.test(t)), 'new id arms, delta starts')
 })
