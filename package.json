@@ -1,7 +1,43 @@
 {
-  "name": "tab-spinner",
-  "private": true,
+  "name": "opencode-tab-spinner",
+  "version": "1.0.0",
+  "description": "opencode plugin: spinner in the terminal tab title while the agent works, like Claude Code",
   "type": "module",
-  "main": "tab-spinner.js",
-  "exports": { ".": "./tab-spinner.js" }
+  "main": "./src/tab-spinner.js",
+  "exports": {
+    ".": "./src/tab-spinner.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node --check src/tab-spinner.js",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "spinner",
+    "terminal",
+    "tui",
+    "ghostty",
+    "tab-title"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsaveliev/opencode-tab-spinner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dsaveliev/opencode-tab-spinner/issues"
+  },
+  "homepage": "https://github.com/dsaveliev/opencode-tab-spinner#readme",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "private": false
 }
