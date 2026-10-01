@@ -4,9 +4,10 @@ import { strict as assert } from 'node:assert'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const PLUGIN = pathToFileURL(join(import.meta.dirname, '../src/tab-spinner.js')).href
+const PLUGIN = pathToFileURL(join(fileURLToPath(new URL('.', import.meta.url)),
+  '../src/tab-spinner.js')).href
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 const tmp = mkdtempSync(join(tmpdir(), 'tab-spinner-hard-'))
