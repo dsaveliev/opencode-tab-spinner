@@ -1,0 +1,23 @@
+test/headless.test.js
+  s_3c41dc1cac8214::t_d0059f4ddb0092 7,9-10
+test/signals.test.js
+  s_3c41dc1cac8214::t_78958910d400bb 7,9-10
+test/state-machine.test.js
+  s_3c41dc1cac8214::t_a7b88e3db776b4 7,9-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "0f4a597b8a8018f65e00fcef06fcb34c266ec0ad",
+  "prompts": {},
+  "sessions": {
+    "s_3c41dc1cac8214": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f09674612ffejyooQUYZuYzaQU",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "Dima Savelyev <dmitrii.savelyev@deliveryhero.com>"
+    }
+  }
+}
