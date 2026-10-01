@@ -1,44 +1,141 @@
-# tab-spinner
+# opencode-tab-spinner
 
-Плагин opencode: спиннер в заголовке таба терминала (ghostty), как у Claude Code.
-Анимация `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` пока ход активен, `✓ <project>` на конце.
+An [opencode](https://opencode.ai) plugin that animates your terminal tab
+title while the agent is working — the behavior Claude Code users know:
+a spinner while the model runs, a check mark when it waits for you.
 
-## Установка
-
-```bash
-ln -sf ../tab-spinner/tab-spinner.js ~/.config/opencode/plugins/tab-spinner.js
+```
+tab title while working:   ⠋ myproject  ⠙ myproject  ⠹ myproject …
+tab title when idle:       ✓ myproject
 ```
 
-(каталог `plugins/` глобальный; файл-плагины грузятся автоматически)
+Works with any OSC-capable terminal: **Ghostty**, Kitty, WezTerm, iTerm2,
+xterm and friends. No configuration required.
 
-## Как работает
+## How it works
 
-События хода приходят ин-процессно (хук `event`), титул пишется OSC 0 в
-`/dev/tty` процесса TUI — у каждого таба свой терминал, изоляция параллельных
-сессий бесплатная. Полный контракт сигналов и машина состояний — в шапке
-`tab-spinner.js` (сверифицировано на opencode 1.18.x).
+opencode plugins receive in-process session events. The plugin listens for
+them and writes an OSC 0 title sequence to the TUI process's own `/dev/tty`
+— so every tab is isolated for free, and the signal is exact:
 
-## Переменные окружения
+- `session.status` busy/idle brackets every LLM call and gives an instant
+  idle at turn end
+- `message.part.delta` (the per-token stream) keeps the animation alive
+  through reasoning and tool execution
+- a trailing metadata update of your last message (arriving ~60 ms after
+  the turn ends) is recognized and ignored — the spinner never resurrects
+  after a finished turn
 
-| Переменная             | Умолчание  | Смысл                                   |
-|------------------------|------------|-----------------------------------------|
-| `TAB_SPINNER_TTY`      | `/dev/tty` | приёмник титула (тесты пишут в файл)   |
-| `TAB_SPINNER_SILENCE_MS`| `12000`   | порог тишины (reasoning-фаза)          |
-| `TAB_SPINNER_LOG`      | пусто      | файл полного диагностического журнала  |
-| `TAB_SPINNER_DEBUG`    | выкл       | `1` — кратный вывод в stderr            |
+The signal contract was verified empirically against opencode 1.18.x and is
+protected by 23 regression tests, several of them rehearsals of real
+production incidents.
 
-Диагностика проблем: `TAB_SPINNER_LOG=/tmp/ts.log oc`, затем смотреть
-`ARM/START/STOP/TITLE` строки.
+## Install
 
-## Тесты
+### Option A — global file install (recommended, verified)
 
 ```bash
-node test.mjs   # 14 кейсов, выход 0 = все зелёные
+git clone https://github.com/dsaveliev/opencode-tab-spinner ~/.config/opencode/opencode-tab-spinner
+ln -s ~/.config/opencode/opencode-tab-spinner/src/tab-spinner.js \
+      ~/.config/opencode/plugins/tab-spinner.js
 ```
 
-## История
+Every opencode instance (any project, any launch method) picks it up.
 
-Развитие шло через обёртку zsh (db-поллинг) → SSE → плагин. Журнал находок:
-TUI не транслирует message-события в SSE; session.status флопает per-LLM-вызов;
-хвостовой апдейт старого user-сообщения требует защиты по messageID.
-Коммиты репозитория содержат полную хронологию.
+### Option B — project-level install
+
+```bash
+mkdir -p .opencode/plugins
+cp src/tab-spinner.js .opencode/plugins/
+```
+
+Scoped to that project only.
+
+### Option C — npm from GitHub
+
+```bash
+cd ~/.config/opencode
+npm install github:dsaveliev/opencode-tab-spinner
+```
+
+then add to `opencode.json(c)`:
+
+```json
+{ "plugin": ["opencode-tab-spinner"] }
+```
+
+> Note: on opencode 1.18.x the config `plugin` array resolves npm packages
+> from the config-dir `node_modules`; if a future opencode restricts this to
+> registry packages only, fall back to Option A.
+
+## Configuration
+
+Everything is optional environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TAB_SPINNER_FRAMES` | `braille` | preset `braille` `dots` `ascii` `clock`, or explicit frames separated by spaces/commas |
+| `TAB_SPINNER_IDLE` | `✓` | idle glyph |
+| `TAB_SPINNER_FRAME_MS` | `120` | frame interval (20–2000) |
+| `TAB_SPINNER_TITLE` | `{frame} {project}` | busy title template |
+| `TAB_SPINNER_TITLE_IDLE` | `{idle} {project}` | idle title template |
+| `TAB_SPINNER_SILENCE_MS` | `12000` | quiet threshold after which the animation pauses visually (200–120000) |
+| `TAB_SPINNER_TTY` | `/dev/tty` | title sink (useful for tests) |
+| `TAB_SPINNER_LOG` | off | full diagnostic journal file |
+| `TAB_SPINNER_DEBUG` | off | `1` — terse stderr diagnostics |
+
+Templates substitute `{frame}`, `{idle}`, `{project}`. All user-supplied
+strings are sanitized: escape sequences are stripped so the title can never
+be broken or injected.
+
+Examples:
+
+```bash
+TAB_SPINNER_FRAMES=clock TAB_SPINNER_IDLE='●' oc
+TAB_SPINNER_FRAMES='>> == --' TAB_SPINNER_TITLE='[{frame}] {project}' oc
+TAB_SPINNER_TITLE_IDLE='{project} — done' oc
+```
+
+## Troubleshooting
+
+Enable the diagnostic journal and read the decision trail
+(`ARM` / `START` / `STOP` / `TITLE` lines with reasons):
+
+```bash
+TAB_SPINNER_LOG=/tmp/tab-spinner.log opencode
+```
+
+- **Spinner runs while nothing happens** — check the journal for
+  `~ignored-dupe-user` and `STOP(status=idle)`; if events look sane, file an
+  issue with the journal excerpt.
+- **Spinner pauses during long thinking** — reasoning phases emit no events;
+  raise `TAB_SPINNER_SILENCE_MS`.
+- **Nothing appears** — your terminal must support OSC 0 titles (Ghostty,
+  Kitty, WezTerm, iTerm2 do); check that the title is not overridden by your
+  shell's own integration.
+
+## Compatibility
+
+Verified against opencode **1.18.x**. The plugin degrades gracefully:
+unknown event shapes are ignored, an unavailable TTY never crashes headless
+`opencode serve` / `opencode run`.
+
+## Development
+
+```bash
+npm test        # node --test test/   (23 tests, no dependencies)
+npm run check   # node --check src/tab-spinner.js
+npm run pack:check
+```
+
+Manual e2e recipe (CI cannot drive opencode itself):
+
+```bash
+mkdir /tmp/e2e && cd /tmp/e2e
+TAB_SPINNER_TTY=/tmp/title.bin opencode run 'reply: pong'
+# /tmp/title.bin must contain spinner frames and end with the idle title
+```
+
+## License
+
+MIT © Dmitrii Savelyev
