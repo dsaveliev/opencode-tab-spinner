@@ -1,5 +1,11 @@
 # opencode-tab-spinner
 
+[![CI](https://github.com/dsaveliev/opencode-tab-spinner/actions/workflows/ci.yml/badge.svg)](https://github.com/dsaveliev/opencode-tab-spinner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![Dependencies](https://img.shields.io/badge/dependencies-0-success.svg)](#)
+[![opencode plugin](https://img.shields.io/badge/opencode-plugin-8A2BE2.svg)](https://opencode.ai/docs/plugins)
+
 An [opencode](https://opencode.ai) plugin that animates your terminal tab
 title while the agent is working — the behavior Claude Code users know:
 a spinner while the model runs, a check mark when it waits for you.
