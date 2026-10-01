@@ -227,13 +227,42 @@ async function case13_silence_keeps_armed() {
   console.log('ok  13 - тишина: визуальный стоп без разряда гейта')
 }
 
+async function case14_dupe_user_update_no_rearm() {
+  const tty = join(tmp, 'dupe.bin')
+  const TabSpinner = await loadPlugin(tty, 'dupe')
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  // реальный ход: новое user-сообщение msg_A -> стрим -> конец
+  await hooks.event({ event: { type: 'message.updated',
+    properties: { info: { id: 'msg_A', role: 'user' }, sessionID: 's1' } } })
+  await sleep(150)
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'idle' }, sessionID: 's1' } } })
+  const after = readTitles(tty).length
+  // хвостовой апдейт СТАРОГО сообщения (id тот же) через 58мс — НЕ ход
+  await hooks.event({ event: { type: 'message.updated',
+    properties: { info: { id: 'msg_A', role: 'user' }, sessionID: 's1' } } })
+  await sleep(400)
+  let titles = readTitles(tty)
+  assert.equal(titles.length, after,
+    `дубль старого user-сообщения не перезапускает (было ${after}, стало ${titles.length})`)
+  assert.equal(titles[titles.length - 1], '✓ Atlas')
+  // новое сообщение (другой id) — взводит
+  await hooks.event({ event: { type: 'message.updated',
+    properties: { info: { id: 'msg_B', role: 'user' }, sessionID: 's1' } } })
+  await sleep(300)
+  titles = readTitles(tty)
+  assert.ok(titles.some(t => /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Atlas$/.test(t)),
+    'новое user-сообщение (другой id) взводит анимацию')
+  console.log('ok  14 - дубль старого user-msg не взводит; новый id взводит')
+}
+
 for (const c of [case1_probe_on_part_updated, case2_probe_on_message_updated,
                  case3_headless_guard, case4_project_fallback,
                  case5_busy_events_animate_frames, case6_idle_stops_and_writes_check,
                  case7_error_stops_animation, case8_no_stacked_intervals,
                  case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop,
                  case11_post_idle_straggler_no_restart, case12_user_message_rearms,
-                 case13_silence_keeps_armed]) {
+                 case13_silence_keeps_armed, case14_dupe_user_update_no_rearm]) {
   try { await c() }
   catch (e) { failed++; console.error(`FAIL ${c.name}: ${e.message}`) }
 }

@@ -79,6 +79,8 @@ export const TabSpinner = async ({ directory }) => {
   let frame_i = 0
   let armed = true
   let lastBusyAt = 0
+  let lastUserId = "" // защита от хвостовых апдейтов СТАРОГО user-сообщения
+                      // (opencode обновляет его метаданные сразу после конца хода)
 
   const start = () => {
     lastBusyAt = Date.now()
@@ -133,7 +135,13 @@ export const TabSpinner = async ({ directory }) => {
         return
       }
       if (type === "message.updated" && p.info?.role === "user") {
-        armed = true // новое пользовательское сообщение = новый ход
+        const mid = p.info.id ?? ""
+        if (mid && mid === lastUserId) {
+          logEvent(`${type}~ignored-dupe-user`, sid) // апдейт старого сообщения, не новый ход
+          return
+        }
+        if (mid) lastUserId = mid
+        armed = true // действительно новое пользовательское сообщение = новый ход
         logEvent("ARM", sid, "=user-msg")
         start()
         return
