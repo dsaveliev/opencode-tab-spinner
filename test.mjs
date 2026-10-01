@@ -9,12 +9,16 @@ import { join } from 'node:path'
 
 const PLUGIN_URL = new URL('./tab-spinner.js', import.meta.url).href
 
-async function loadPlugin(tty, tag) {
+async function loadPlugin(tty, tag, silenceMs) {
   const prev = process.env.TAB_SPINNER_TTY
+  const prevSil = process.env.TAB_SPINNER_SILENCE_MS
   process.env.TAB_SPINNER_TTY = tty
-  const mod = await import(`${PLUGIN_URL}?case=${tag}`)
+  if (silenceMs !== undefined) process.env.TAB_SPINNER_SILENCE_MS = String(silenceMs)
+  const mod = await import(`${PLUGIN_URL}?case=${tag}-${silenceMs ?? ''}`)
   if (prev === undefined) delete process.env.TAB_SPINNER_TTY
   else process.env.TAB_SPINNER_TTY = prev
+  if (prevSil === undefined) delete process.env.TAB_SPINNER_SILENCE_MS
+  else process.env.TAB_SPINNER_SILENCE_MS = prevSil
   return mod.TabSpinner
 }
 
@@ -202,12 +206,30 @@ async function case12_user_message_rearms() {
   console.log('ok  12 - message.updated role=user взводит анимацию нового хода')
 }
 
+async function case13_silence_keeps_armed() {
+  const tty = join(tmp, 'silence.bin')
+  const TabSpinner = await loadPlugin(tty, 'silence', 400) // короткий порог для теста
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  await hooks.event({ event: { type: 'message.part.delta', properties: {} } })
+  await sleep(200)   // кадры идут
+  await sleep(600)   // тишина > 400мс -> визуальный стоп (✓), гейт НЕ разряжен
+  const mid = readTitles(tty)
+  assert.equal(mid[mid.length - 1], '✓ Atlas', 'тишина гасит анимацию в ✓')
+  // reasoning закончился — дельта перезапускает без повторного взвода
+  await hooks.event({ event: { type: 'message.part.delta', properties: {} } })
+  await sleep(300)
+  const after = readTitles(tty).filter(t => /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Atlas$/.test(t))
+  assert.ok(after.length >= 2, `дельта после тишины перезапускает кадры (есть ${after.length})`)
+  console.log('ok  13 - тишина: визуальный стоп без разряда гейта')
+}
+
 for (const c of [case1_probe_on_part_updated, case2_probe_on_message_updated,
                  case3_headless_guard, case4_project_fallback,
                  case5_busy_events_animate_frames, case6_idle_stops_and_writes_check,
                  case7_error_stops_animation, case8_no_stacked_intervals,
                  case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop,
-                 case11_post_idle_straggler_no_restart, case12_user_message_rearms]) {
+                 case11_post_idle_straggler_no_restart, case12_user_message_rearms,
+                 case13_silence_keeps_armed]) {
   try { await c() }
   catch (e) { failed++; console.error(`FAIL ${c.name}: ${e.message}`) }
 }

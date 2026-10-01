@@ -11,10 +11,19 @@
 //   СТАРТ: message.part.delta / message.part.updated / message.updated —
 //          только когда взведено; после остановки хвостовые message-события
 //          игнорируются до нового взвода (гейт armed)
-//   СТОП:  session.status{type:idle} | session.idle | session.error —
-//          мгновенно, плюс разряд гейта
-//   СТРАХОВКА ТИШИНЫ: без busy-событий дольше SILENCE_MS анимация гаснет
-//          сама (TUI-режим может не присылать session.status — см. логгер)
+//   СТОП+РАЗРЯД: session.status{type:idle} | session.idle | session.error
+//   СТОП БЕЗ разряда (только ✓): тишина дольше SILENCE_MS — модель в фазе
+//          reasoning не шлёт событий, но ход продолжается; первый же
+//          delta/busy мгновенно перезапускает анимацию. Разряд гейта на
+//          тишине недопустим — проверено инцидентом: 10с думания разряжали
+//          гейт и весь дальнейший стрим игнорировался.
+//
+// Эмпирика TUI (лог /tmp/tab-spinner-events.log, 2026-10-01):
+//   - session.status флопает per-LLM-вызов (busy на старте вызова, idle на
+//     конце), не per-ход; статус-события в TUI ЕСТЬ;
+//   - дельты текут и во время исполнения инструмента (1023 шт за 18с);
+//   - единственные «тихие» окна — reasoning-фазы (~10с).
+const SILENCE_MS = Number(process.env.TAB_SPINNER_SILENCE_MS || 20000)
 //
 // ДИАГНОСТИКА: каждый session/message-событие пишется в TAB_SPINNER_LOG
 // (умолч. /tmp/tab-spinner-events.log) — снимок реального потока TUI для
@@ -31,7 +40,6 @@ const DBG = process.env.TAB_SPINNER_DEBUG === "1"
 const LOG = process.env.TAB_SPINNER_LOG === "" ? null
   : process.env.TAB_SPINNER_LOG || "/tmp/tab-spinner-events.log"
 const FRAME_MS = 120
-const SILENCE_MS = 8000
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 const BUSY_EVENTS = new Set(["message.part.delta", "message.part.updated", "message.updated"])
 
@@ -74,7 +82,7 @@ export const TabSpinner = async ({ directory }) => {
     frame_i = 0
     timer = setInterval(() => {
       if (Date.now() - lastBusyAt > SILENCE_MS) {
-        stop("silence")
+        stop("silence", false) // визуальный стоп без разряда: reasoning-фаза
         return
       }
       title(`${FRAMES[frame_i]} ${project}`)
@@ -83,13 +91,13 @@ export const TabSpinner = async ({ directory }) => {
     dbg("animation started")
   }
 
-  const stop = (reason) => {
+  const stop = (reason, disarm = true) => {
     if (timer) {
       clearInterval(timer)
       timer = null
       dbg(`animation stopped (${reason})`)
     }
-    armed = false
+    if (disarm) armed = false
     title(`✓ ${project}`)
   }
 
