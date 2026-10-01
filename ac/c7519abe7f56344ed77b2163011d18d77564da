@@ -1,0 +1,22 @@
+tab-spinner.js
+  s_3c41dc1cac8214::t_2e08249f87884f 82-83
+  s_3c41dc1cac8214::t_9c2a2491d8d12b 138-144
+test.mjs
+  s_3c41dc1cac8214::t_cb32a75f65496f 230-258,265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "acc7519abe7f56344ed77b2163011d18d77564da",
+  "prompts": {},
+  "sessions": {
+    "s_3c41dc1cac8214": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f09674612ffejyooQUYZuYzaQU",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "Dima Savelyev <dmitrii.savelyev@deliveryhero.com>"
+    }
+  }
+}
