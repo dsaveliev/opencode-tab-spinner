@@ -1,85 +1,135 @@
-// tab-spinner — спиннер в заголовке таба терминала (ghostty), как у Claude Code.
-// Плагин opencode: события хода приходят ин-процессно, титул пишется OSC 0
-// (ESC ]0;...BEL) в /dev/tty процесса TUI — у каждого таба свой, изоляция
-// бесплатная. Работает при любом способе запуска opencode.
+// opencode-tab-spinner — animates the terminal tab title while an opencode
+// session is working, like Claude Code: spinner frames while the agent runs,
+// an idle glyph when it waits for input.
 //
-// Заголовок:
-//   «⠋ Project» — ход активен (кадры ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏, 120 мс/кадр)
-//   «✓ Project» — ход закончен
+// The plugin runs inside the opencode TUI process and receives in-process
+// session events — the only reliable busy signal. The title is written as an
+// OSC 0 sequence (ESC ]0;...BEL) to the process's own /dev/tty, so every tab
+// is isolated for free. Works with any OSC-capable terminal (Ghostty, Kitty,
+// WezTerm, iTerm2, xterm). Writes to an unavailable TTY are silently skipped
+// (headless `opencode serve` / `opencode run` never crash).
 //
-// Контракт сигналов (эмпирически сверифицировано на opencode 1.18.x):
-//   session.status {status:{type:"busy"|"idle"}} — флопает на границах
-//     КАЖДОГО LLM-вызова (не хода); на конце хода даёт мгновенный idle;
-//   message.part.delta — пер-токенный стрим; течёт и во время исполнения
-//     инструмента; молчит только в reasoning-фазах (~10-30с);
-//   message.updated role=user с НОВЫМ id — старт хода. Дубль СТАРОГО id
-//     приходит через ~60мс после конца хода (opencode обновляет метаданные
-//     сообщения) — обязателен к игнорированию, иначе спиннер воскресает;
-//   session.idle / session.error — резервные стопы.
+// Signal contract (verified empirically against opencode 1.18.x):
+//   session.status {status:{type:"busy"|"idle"}} — flaps at EVERY LLM-call
+//     boundary (not per turn); provides an instant idle at turn end, while
+//     session.idle may lag behind its idle timer;
+//   message.part.delta — per-token stream; also flows during tool execution;
+//     silent only during reasoning phases (~10-30s);
+//   message.updated with role=user and a NEW info.id — turn start. A
+//     trailing update of the OLD user message arrives ~60ms after turn end
+//     (opencode refreshes message metadata) and MUST NOT re-arm — hence the
+//     lastUserId guard;
+//   session.idle / session.error — fallback stops.
 //
-// Машина состояний:
-//   ВЗВОД:  status:busy | user-сообщение с новым id
-//   СТАРТ: message.* при взведённом гейте (после остановки хвостовые
-//          message-события игнорируются до нового взвода)
-//   СТОП+РАЗРЯД: status:idle | session.idle | session.error
-//   СТОП БЕЗ разряда: тишина > SILENCE_MS (reasoning-фаза: ход жив,
-//          первый же delta мгновенно перезапускает анимацию)
+// State machine:
+//   ARM:         status busy | user message with a new id
+//   START:       message.* events while armed (stragglers after a stop are
+//                ignored until the next ARM)
+//   STOP+DISARM: status idle | session.idle | session.error (instant)
+//   STOP visual: silence > silenceMs — reasoning produces no events, so the
+//                gate stays armed and the first delta restarts instantly
 //
-// Env:
-//   TAB_SPINNER_TTY         — приёмник титула (умолч. /dev/tty)
-//   TAB_SPINNER_SILENCE_MS  — порог тишины (умолч. 12000)
-//   TAB_SPINNER_LOG         — файл полного диагностического журнала
-//                             (события, решения ARM/START/STOP, титулы);
-//                             по умолчанию ВЫКЛ
-//   TAB_SPINNER_DEBUG=1     — кратный вывод в stderr
-// Запись в недоступный TTY молча пропускается (headless serve/run).
+// Configuration (environment variables, all optional):
+//   TAB_SPINNER_FRAMES      preset name (braille|dots|ascii|clock) or explicit
+//                           frames separated by spaces/commas   [braille]
+//   TAB_SPINNER_IDLE        idle glyph                           [✓]
+//   TAB_SPINNER_FRAME_MS    frame interval, 20..2000             [120]
+//   TAB_SPINNER_TITLE       busy title template                   [{frame} {project}]
+//   TAB_SPINNER_TITLE_IDLE  idle title template                   [{idle} {project}]
+//   TAB_SPINNER_SILENCE_MS  quiet threshold, 1000..120000        [12000]
+//   TAB_SPINNER_TTY         title sink (tests write to a file)   [/dev/tty]
+//   TAB_SPINNER_LOG         full diagnostic journal file         [off]
+//   TAB_SPINNER_DEBUG       "1" — terse stderr diagnostics       [off]
+// All user-supplied strings are sanitized: ESC/BEL are stripped so the OSC
+// sequence can never be broken; invalid values fall back to defaults.
 
 import { appendFileSync, statSync, writeFileSync } from "node:fs"
 
-const TTY = process.env.TAB_SPINNER_TTY || "/dev/tty"
-const DBG = process.env.TAB_SPINNER_DEBUG === "1"
-const LOG = process.env.TAB_SPINNER_LOG || "" // пусто = не логировать
-const FRAME_MS = 120
-const SILENCE_MS = Number(process.env.TAB_SPINNER_SILENCE_MS || 12000)
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-const BUSY_EVENTS = new Set(["message.part.delta", "message.part.updated", "message.updated"])
-
-const dbg = (m) => { if (DBG) console.error(`[tab-spinner] ${m}`) }
-
-if (LOG) {
-  try {
-    if (statSync(LOG).size > 512 * 1024) writeFileSync(LOG, "")
-  } catch { /* файла ещё нет — норма */ }
+export const PRESETS = {
+  braille: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+  dots: ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"],
+  ascii: ["|", "/", "-", "\\"],
+  clock: ["◐", "◓", "◑", "◒"],
 }
 
-function logEvent(type, sid, extra = "") {
-  if (!LOG) return
-  try { appendFileSync(LOG, `${Date.now()} pid=${process.pid} ${type}${extra} ${sid}\n`) } catch {}
+// Strip complete escape sequences (CSI, OSC) and stray ESC/BEL so that
+// user-supplied strings can never break out of the OSC 0 title sequence.
+const stripCtl = (s) => String(s)
+  .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+  .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g, "")
+  .replace(/[\x1b\x07]/g, "")
+
+const num = (raw, fallback, min, max) => {
+  const n = Number(raw)
+  return raw !== undefined && Number.isFinite(n) && n >= min && n <= max ? n : fallback
 }
 
-let lastTitle = ""
-function title(text) {
-  if (text === lastTitle) return // дедуп: пачка idle подряд пишет один ✓
-  lastTitle = text
-  logEvent("TITLE", "-", `='${text}'`)
+export function parseConfig(env = process.env) {
+  const rawFrames = stripCtl(env.TAB_SPINNER_FRAMES ?? "").trim()
+  let frames = PRESETS.braille
+  if (PRESETS[rawFrames]) {
+    frames = PRESETS[rawFrames]
+  } else if (rawFrames) {
+    const custom = rawFrames.split(/[\s,]+/).filter(Boolean)
+    if (custom.length >= 2) frames = custom
+  }
+  return {
+    frames,
+    idle: stripCtl(env.TAB_SPINNER_IDLE ?? "") || "✓",
+    frameMs: num(env.TAB_SPINNER_FRAME_MS, 120, 20, 2000),
+    silenceMs: num(env.TAB_SPINNER_SILENCE_MS, 12000, 200, 120000),
+    titleBusy: stripCtl(env.TAB_SPINNER_TITLE ?? "") || "{frame} {project}",
+    titleIdle: stripCtl(env.TAB_SPINNER_TITLE_IDLE ?? "") || "{idle} {project}",
+    tty: stripCtl(env.TAB_SPINNER_TTY ?? "") || "/dev/tty",
+    log: stripCtl(env.TAB_SPINNER_LOG ?? ""),
+    debug: env.TAB_SPINNER_DEBUG === "1",
+  }
+}
+
+export function renderTemplate(tpl, vars) {
+  return tpl.replace(/\{(frame|idle|project)\}/g, (_, key) => vars[key])
+}
+
+const dbg = (enabled, m) => { if (enabled) console.error(`[tab-spinner] ${m}`) }
+
+function makeLogger(file) {
+  if (!file) return () => {}
   try {
-    appendFileSync(TTY, `\x1b]0;${text}\x07`)
-  } catch (e) {
-    dbg(`title write FAILED: ${e.message}`)
+    if (statSync(file).size > 512 * 1024) writeFileSync(file, "")
+  } catch { /* file does not exist yet — fine */ }
+  return (type, sid, extra = "") => {
+    try { appendFileSync(file, `${Date.now()} pid=${process.pid} ${type}${extra} ${sid}\n`) } catch {}
   }
 }
 
 export const TabSpinner = async ({ directory }) => {
+  const cfg = parseConfig()
+  const logEvent = makeLogger(cfg.log)
+  dbg(cfg.debug, `loaded, directory=${directory}, tty=${cfg.tty}`)
+
   const parts = String(directory ?? "").split("/").filter(Boolean)
-  // санитизация: ESC/BEL из имени каталога не должны ломать OSC-последовательность
-  const project = (parts[parts.length - 1] || "opencode").replace(/[\x1b\x07]/g, "")
-  dbg(`loaded, directory=${directory}, TTY=${TTY}`)
+  const project = stripCtl(parts[parts.length - 1] || "opencode")
+
+  let lastTitle = ""
+  function title(text) {
+    if (text === lastTitle) return // a burst of idles writes one idle title
+    lastTitle = text
+    logEvent("TITLE", "-", `='${text}'`)
+    try {
+      appendFileSync(cfg.tty, `\x1b]0;${text}\x07`)
+    } catch (e) {
+      dbg(cfg.debug, `title write FAILED: ${e.message}`)
+    }
+  }
+
+  const busyTitle = (frame) => renderTemplate(cfg.titleBusy, { frame, idle: cfg.idle, project })
+  const idleTitle = () => renderTemplate(cfg.titleIdle, { frame: "", idle: cfg.idle, project })
 
   let timer = null
   let frame_i = 0
   let armed = true
   let lastBusyAt = 0
-  let lastUserId = "" // хвостовой апдейт старого user-сообщения ≠ новый ход
+  let lastUserId = "" // trailing updates of the old user message are not a new turn
 
   const start = () => {
     lastBusyAt = Date.now()
@@ -87,13 +137,13 @@ export const TabSpinner = async ({ directory }) => {
     frame_i = 0
     logEvent("START", "-")
     timer = setInterval(() => {
-      if (Date.now() - lastBusyAt > SILENCE_MS) {
-        stop("silence", false) // визуальный стоп, гейт не трогаем
+      if (Date.now() - lastBusyAt > cfg.silenceMs) {
+        stop("silence", false) // visual stop only: the gate stays armed
         return
       }
-      title(`${FRAMES[frame_i]} ${project}`)
-      frame_i = (frame_i + 1) % FRAMES.length
-    }, FRAME_MS)
+      title(busyTitle(cfg.frames[frame_i]))
+      frame_i = (frame_i + 1) % cfg.frames.length
+    }, cfg.frameMs)
   }
 
   const stop = (reason, disarm = true) => {
@@ -103,7 +153,7 @@ export const TabSpinner = async ({ directory }) => {
       logEvent("STOP", "-", `(${reason}${disarm ? ",disarm" : ""})`)
     }
     if (disarm) armed = false
-    title(`✓ ${project}`)
+    title(idleTitle())
   }
 
   return {
@@ -140,7 +190,7 @@ export const TabSpinner = async ({ directory }) => {
         start()
         return
       }
-      if (BUSY_EVENTS.has(type)) {
+      if (type === "message.part.delta" || type === "message.part.updated" || type === "message.updated") {
         if (armed) {
           start()
         } else {
