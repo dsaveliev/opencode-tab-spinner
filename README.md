@@ -51,22 +51,18 @@ cp src/tab-spinner.js .opencode/plugins/
 
 Scoped to that project only.
 
-### Option C — npm from GitHub
+### Option C — npm registry (once published)
 
-```bash
-cd ~/.config/opencode
-npm install github:dsaveliev/opencode-tab-spinner
-```
-
-then add to `opencode.json(c)`:
+After the package is published to npm, add to `opencode.json(c)`:
 
 ```json
 { "plugin": ["opencode-tab-spinner"] }
 ```
 
-> Note: on opencode 1.18.x the config `plugin` array resolves npm packages
-> from the config-dir `node_modules`; if a future opencode restricts this to
-> registry packages only, fall back to Option A.
+> Verified limitation (opencode 1.18.x): the config `plugin` array resolves
+> only **registry** packages. A `github:` install into the config-dir
+> `node_modules` is silently skipped — use Option A until the package is on
+> npm (or until opencode lifts this restriction).
 
 ## Configuration
 
