@@ -4,28 +4,50 @@
 //
 // Состояния заголовка:
 //   «⠋ Project» — ход активен: кадры ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏, 120 мс/кадр
-//   «✓ Project» — ход закончен (session.idle / session.error)
+//   «✓ Project» — ход закончен
 //
-// Сигналы (эмпирически проверено на 1.18.x, payloads см. test.mjs):
-//   ПЕРВИЧНЫЙ — session.status {status:{type:"busy"|"idle"}}: авторитетные
-//   границы хода; idle приходит мгновенно на конце (session.idle в TUI
-//   запаздывает по idle-таймеру — на нём одного держать нельзя).
-//   Резерв-старт — message.part.delta (пер-токенный стрим), message.part.updated,
-//   message.updated. Резерв-стоп — session.idle, session.error.
+// Машина состояний (после инцидентов «крутится после конца» и «prerывisto»):
+//   ВЗВОД:  session.status{type:busy} | message.updated с info.role=user
+//   СТАРТ: message.part.delta / message.part.updated / message.updated —
+//          только когда взведено; после остановки хвостовые message-события
+//          игнорируются до нового взвода (гейт armed)
+//   СТОП:  session.status{type:idle} | session.idle | session.error —
+//          мгновенно, плюс разряд гейта
+//   СТРАХОВКА ТИШИНЫ: без busy-событий дольше SILENCE_MS анимация гаснет
+//          сама (TUI-режим может не присылать session.status — см. логгер)
+//
+// ДИАГНОСТИКА: каждый session/message-событие пишется в TAB_SPINNER_LOG
+// (умолч. /tmp/tab-spinner-events.log) — снимок реального потока TUI для
+// калибровки сигналов. Убрать после стабилизации.
 //
 // Env: TAB_SPINNER_TTY — приёмник титула для тестов (умолч. /dev/tty);
-// TAB_SPINNER_DEBUG=1 — диагностический вывод в stderr.
+// TAB_SPINNER_DEBUG=1 — диагностический вывод в stderr;
+// TAB_SPINNER_LOG — файл лога событий (пусто = не логировать).
 // Запись в недоступный TTY молча пропускается (headless serve/run).
-import { appendFileSync } from "node:fs"
+import { appendFileSync, statSync, writeFileSync } from "node:fs"
 
 const TTY = process.env.TAB_SPINNER_TTY || "/dev/tty"
 const DBG = process.env.TAB_SPINNER_DEBUG === "1"
+const LOG = process.env.TAB_SPINNER_LOG === "" ? null
+  : process.env.TAB_SPINNER_LOG || "/tmp/tab-spinner-events.log"
 const FRAME_MS = 120
+const SILENCE_MS = 8000
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 const BUSY_EVENTS = new Set(["message.part.delta", "message.part.updated", "message.updated"])
-const STOP_EVENTS = new Set(["session.idle", "session.error"])
+
 const dbg = (m) => { if (DBG) console.error(`[tab-spinner] ${m}`) }
-dbg(`module loaded, TTY=${TTY}`)
+dbg(`module loaded, TTY=${TTY}, LOG=${LOG}`)
+
+if (LOG) {
+  try {
+    if (statSync(LOG).size > 512 * 1024) writeFileSync(LOG, "")
+  } catch { /* файла ещё нет — норма */ }
+}
+
+function logEvent(type, sid) {
+  if (!LOG) return
+  try { appendFileSync(LOG, `${Date.now()} ${type} ${sid}\n`) } catch {}
+}
 
 function title(text) {
   try {
@@ -43,11 +65,18 @@ export const TabSpinner = async ({ directory }) => {
 
   let timer = null
   let frame_i = 0
+  let armed = true
+  let lastBusyAt = 0
 
   const start = () => {
+    lastBusyAt = Date.now()
     if (timer) return
     frame_i = 0
     timer = setInterval(() => {
+      if (Date.now() - lastBusyAt > SILENCE_MS) {
+        stop("silence")
+        return
+      }
       title(`${FRAMES[frame_i]} ${project}`)
       frame_i = (frame_i + 1) % FRAMES.length
     }, FRAME_MS)
@@ -60,25 +89,44 @@ export const TabSpinner = async ({ directory }) => {
       timer = null
       dbg(`animation stopped (${reason})`)
     }
+    armed = false
     title(`✓ ${project}`)
   }
 
   return {
     event: async ({ event }) => {
       const type = event?.type ?? ""
+      const p = event?.properties ?? {}
+      const sid = p.sessionID ?? ""
+      if (type.startsWith("session.") || type.startsWith("message.")) {
+        logEvent(type, sid)
+      }
+
       if (type === "session.status") {
-        const status = event?.properties?.status?.type
+        const status = p.status?.type
         if (status === "busy") {
+          armed = true
           start()
         } else if (status === "idle") {
           stop("status=idle")
         }
         return
       }
-      if (BUSY_EVENTS.has(type)) {
-        start()
-      } else if (STOP_EVENTS.has(type)) {
+      if (type === "session.idle" || type === "session.error") {
         stop(type)
+        return
+      }
+      if (type === "message.updated" && p.info?.role === "user") {
+        armed = true // новое пользовательское сообщение = новый ход
+        start()
+        return
+      }
+      if (BUSY_EVENTS.has(type)) {
+        if (armed) {
+          start()
+        } else {
+          logEvent(`${type}~ignored-disarmed`, sid)
+        }
       }
     },
   }

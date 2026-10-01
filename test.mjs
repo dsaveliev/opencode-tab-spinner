@@ -163,11 +163,51 @@ async function case10_status_idle_without_busy_is_noop() {
   console.log('ok  10 - status=idle в idle-состоянии — no-op с одним ✓')
 }
 
+async function case11_post_idle_straggler_no_restart() {
+  const tty = join(tmp, 'straggler.bin')
+  const TabSpinner = await loadPlugin(tty, 'straggler')
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'busy' } } } })
+  await sleep(250)
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'idle' } } } })
+  const after = readTitles(tty).length
+  await sleep(100)
+  // «хвостовой» part-событие ПОСЛЕ idle не должно перезапустить анимацию
+  await hooks.event({ event: { type: 'message.part.updated',
+    properties: { sessionID: 'ses_x' } } })
+  await sleep(400)
+  const titles = readTitles(tty)
+  assert.equal(titles.length, after,
+    `straggler после idle игнорируется (было ${after}, стало ${titles.length})`)
+  assert.equal(titles[titles.length - 1], '✓ Atlas')
+  console.log('ok  11 - message-событие после idle не перезапускает спиннер')
+}
+
+async function case12_user_message_rearms() {
+  const tty = join(tmp, 'rearm.bin')
+  const TabSpinner = await loadPlugin(tty, 'rearm')
+  const hooks = track(await TabSpinner({ directory: '/Users/x/Atlas' }))
+  await hooks.event({ event: { type: 'session.status',
+    properties: { status: { type: 'idle' } } } })  // разрядили
+  await sleep(100)
+  await hooks.event({ event: { type: 'message.updated',
+    properties: { info: { role: 'user' }, sessionID: 'ses_x' } } }) // новый ход
+  await hooks.event({ event: { type: 'message.part.delta',
+    properties: { sessionID: 'ses_x' } } })
+  await sleep(300)
+  const frames = readTitles(tty).filter(t => /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Atlas$/.test(t))
+  assert.ok(frames.length >= 2, `user-сообщение взводит новый ход (кадров ${frames.length})`)
+  console.log('ok  12 - message.updated role=user взводит анимацию нового хода')
+}
+
 for (const c of [case1_probe_on_part_updated, case2_probe_on_message_updated,
                  case3_headless_guard, case4_project_fallback,
                  case5_busy_events_animate_frames, case6_idle_stops_and_writes_check,
                  case7_error_stops_animation, case8_no_stacked_intervals,
-                 case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop]) {
+                 case9_status_busy_starts_idle_stops, case10_status_idle_without_busy_is_noop,
+                 case11_post_idle_straggler_no_restart, case12_user_message_rearms]) {
   try { await c() }
   catch (e) { failed++; console.error(`FAIL ${c.name}: ${e.message}`) }
 }
