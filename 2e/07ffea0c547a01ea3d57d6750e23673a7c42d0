@@ -1,0 +1,45 @@
+CHANGELOG.md
+  s_6e87c2169ddadc::t_cb98683b4dc76f 3-23
+src/tab-spinner.js
+  s_6e87c2169ddadc::t_c4cb8b7406284e 24-36,43,46-49
+  s_6e87c2169ddadc::t_8f50e069bd5a09 58-61
+  s_6e87c2169ddadc::t_bf6c0cc31b868d 117
+  s_6e87c2169ddadc::t_c96b5b85891176 181-188,195-197,201,226-259
+  s_6e87c2169ddadc::t_f0cb1d27315ef4 283,287-302,310-315
+  s_6e87c2169ddadc::t_4cf8054e9b657a 106-109
+package.json
+  s_6e87c2169ddadc::t_1f0a17227ce0df 3
+  s_6e87c2169ddadc::t_9ce1351edfab1a 17
+SPEC.md
+  s_6e87c2169ddadc::t_4de35ad415931b 7-10
+  s_6e87c2169ddadc::t_4085aa0ef5fdfc 102-105
+  s_6e87c2169ddadc::t_efea79c6eecefb 122-130
+  s_6e87c2169ddadc::t_fc918423eef9ec 169-181
+test/dialogs.test.js
+  s_6e87c2169ddadc::t_6603ce4326abca 1-210
+test/config.test.js
+  s_6e87c2169ddadc::t_a2f0db920cf9ff 66-91
+README.md
+  s_6e87c2169ddadc::t_ad98daa0f3e3e0 37-40,43
+  s_6e87c2169ddadc::t_134a78e3b42c78 123-124,127-129
+  s_6e87c2169ddadc::t_a616faa138d329 91-94
+  s_6e87c2169ddadc::t_0876ab216471f4 11-12,17-18
+  s_6e87c2169ddadc::t_84d404a725d1b9 143
+  s_6e87c2169ddadc::t_3521165b5d3b91 100-102,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "2e07ffea0c547a01ea3d57d6750e23673a7c42d0",
+  "prompts": {},
+  "sessions": {
+    "s_6e87c2169ddadc": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_efe1f8b0affejiqRoNDA6BopTD",
+        "model": "glm-5.3"
+      },
+      "human_author": "Dima Savelyev <dmitrii.savelyev@deliveryhero.com>"
+    }
+  }
+}
