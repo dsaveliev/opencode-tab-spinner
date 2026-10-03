@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0 — 2026-10-03
+
+Dialog glyphs in the tab title: an open question or tool-confirmation
+dialog is now visible at a glance.
+
+- `? project` while the question tool waits for your answer
+  (`question.asked` → `question.replied|rejected`)
+- `! project` while a tool confirmation dialog is open
+  (`permission.asked` → `permission.replied`); `?` wins when both are open
+- The animation freezes for the duration of the dialog; the idle glyph
+  never overwrites the dialog glyph across the per-LLM-call idle flaps
+- Defensive `ASK-CLEAR`: an interrupted question tool publishes no close
+  event — a stale glyph is reset by your next message or a session error
+- New env vars: `TAB_SPINNER_QUESTION` (`?`), `TAB_SPINNER_PERMISSION` (`!`),
+  `TAB_SPINNER_TITLE_QUESTION` (`{question} {project}`),
+  `TAB_SPINNER_TITLE_PERMISSION` (`{permission} {project}`); templates gain
+  the `{question}` / `{permission}` tokens; all sanitized as before
+- Event shapes verified against opencode 1.18.31 source
+  (`question/index.ts`, `permission/index.ts`, `plugin/index.ts`)
+- Tests 41/41 (new: 12 dialog cases + 3 config cases)
+
 ## 1.0.1 — 2026-10-01
 
 Hardening pass (4-axis review + improve-codebase-architecture skill scan).

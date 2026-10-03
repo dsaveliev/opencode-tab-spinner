@@ -21,15 +21,32 @@
 //     lastUserId guard;
 //   session.idle / session.error — fallback stops.
 //
+// Dialog contract (verified against opencode 1.18.31 source):
+//   question.asked {id,...} / question.replied|rejected {requestID,...} —
+//     the question tool blocks the run on a modal dialog;
+//   permission.asked {id,...} / permission.replied {requestID,...} — same
+//     for tool-confirmation dialogs (replied covers every outcome:
+//     once/always/reject, including the cascade reject of siblings).
+//   Plugins receive every EventV2 event, so these arrive on the same hook.
+//   While any dialog is open the animation is frozen and the title shows a
+//   dialog glyph (question "?" beats permission "!"); idle-flap stops must
+//   not overwrite it. An interrupted question tool publishes NO close event
+//   (only the TUI dismiss/answer paths do) — a stale dialog is cleared
+//   defensively by a NEW user message or session.error.
+//
 // State machine:
 //   ARM:         status busy (arms AND starts) | user message with a new id
 //                (arms the gate only — a real turn is confirmed by busy or
 //                deltas; trailing metadata updates must not resurrect)
 //   START:       message.* events while armed (stragglers after a stop are
 //                ignored until the next ARM)
-//   STOP+DISARM: status idle | session.idle | session.error (instant)
+//   STOP+DISARM: status idle | session.idle | session.error  (instant)
 //   STOP visual: silence > silenceMs — reasoning produces no events, so the
 //                gate stays armed and the first delta restarts instantly
+//   ASK-FREEZE:  question.asked | permission.asked — freeze the animation
+//                (gate stays armed) and write the dialog title
+//   ASK-RESUME:  question.replied|rejected | permission.replied — back to
+//                the idle title; the resumed turn restarts frames itself
 //
 // Configuration (environment variables, all optional):
 //   TAB_SPINNER_FRAMES      preset name (braille|dots|ascii|clock) or explicit
@@ -38,6 +55,10 @@
 //   TAB_SPINNER_FRAME_MS    frame interval, 20..2000             [120]
 //   TAB_SPINNER_TITLE       busy title template                   [{frame} {project}]
 //   TAB_SPINNER_TITLE_IDLE  idle title template                   [{idle} {project}]
+//   TAB_SPINNER_QUESTION      question-dialog glyph               [?]
+//   TAB_SPINNER_PERMISSION    permission-dialog glyph             [!]
+//   TAB_SPINNER_TITLE_QUESTION   question title template   [{question} {project}]
+//   TAB_SPINNER_TITLE_PERMISSION permission title template [{permission} {project}]
 //   TAB_SPINNER_SILENCE_MS  quiet threshold, 1000..120000        [12000]
 //   TAB_SPINNER_TTY         title sink (tests write to a file)   [/dev/tty]
 //   TAB_SPINNER_LOG         full diagnostic journal file         [off]
@@ -82,6 +103,10 @@ function parseConfig(env = process.env) {
     silenceMs: num(env.TAB_SPINNER_SILENCE_MS, 12000, 200, 120000),
     titleBusy: stripCtl(env.TAB_SPINNER_TITLE ?? "") || "{frame} {project}",
     titleIdle: stripCtl(env.TAB_SPINNER_TITLE_IDLE ?? "") || "{idle} {project}",
+    question: stripCtl(env.TAB_SPINNER_QUESTION ?? "") || "?",
+    permission: stripCtl(env.TAB_SPINNER_PERMISSION ?? "") || "!",
+    titleQuestion: stripCtl(env.TAB_SPINNER_TITLE_QUESTION ?? "") || "{question} {project}",
+    titlePermission: stripCtl(env.TAB_SPINNER_TITLE_PERMISSION ?? "") || "{permission} {project}",
     tty: stripCtl(env.TAB_SPINNER_TTY ?? "") || "/dev/tty",
     log: stripCtl(env.TAB_SPINNER_LOG ?? ""),
     debug: env.TAB_SPINNER_DEBUG === "1",
@@ -89,7 +114,7 @@ function parseConfig(env = process.env) {
 }
 
 function renderTemplate(tpl, vars) {
-  return tpl.replace(/\{(frame|idle|project)\}/g, (_, key) => vars[key])
+  return tpl.replace(/\{(frame|idle|question|permission|project)\}/g, (_, key) => vars[key])
 }
 
 const BUSY_EVENTS = new Set(["message.part.delta", "message.part.updated", "message.updated"])
@@ -153,17 +178,27 @@ export const TabSpinner = async ({ directory }) => {
 
   const title = makeTitleWriter(cfg, logEvent, (m) => dbg(cfg.debug, m))
 
-  const busyTitle = (frame) => renderTemplate(cfg.titleBusy, { frame, idle: cfg.idle, project })
-  const idleTitle = () => renderTemplate(cfg.titleIdle, { frame: "", idle: cfg.idle, project })
+  const tplVars = (extra = {}) => ({
+    frame: "", idle: cfg.idle, question: cfg.question, permission: cfg.permission, project, ...extra,
+  })
+  const busyTitle = (frame) => renderTemplate(cfg.titleBusy, tplVars({ frame }))
+  const idleTitle = () => renderTemplate(cfg.titleIdle, tplVars())
+  const askTitle = () => renderTemplate(
+    pendingQ.size ? cfg.titleQuestion : cfg.titlePermission, tplVars(),
+  )
 
   let timer = null
   let frame_i = 0
   let armed = true
   let lastBusyAt = 0
   let lastUserId = "" // trailing updates of the old user message are not a new turn
+  const pendingQ = new Set() // open question dialogs (question tool)
+  const pendingP = new Set() // open permission dialogs (tool confirmation)
+  const askActive = () => pendingQ.size > 0 || pendingP.size > 0
 
   const start = () => {
     if (title.isDisabled()) return // dead TTY: never spin a dead writer
+    if (askActive()) return // dialog open: the agent is blocked on the user
     lastBusyAt = Date.now()
     if (timer) return
     frame_i = 0
@@ -188,7 +223,40 @@ export const TabSpinner = async ({ directory }) => {
       logEvent("STOP", "-", `(${reason}${disarm ? ",disarm" : ""})`)
     }
     if (disarm) armed = false
-    title(idleTitle())
+    // An open dialog beats the idle glyph: the tab must keep saying "?"/"!"
+    // across the idle flaps that bracket every LLM call.
+    title(askActive() ? askTitle() : idleTitle())
+  }
+
+  // A dialog opened: freeze the animation (the gate stays armed — the turn
+  // resumes on its own events once the user answers) and show the glyph.
+  const dialogPause = (kind, sid, id) => {
+    logEvent("ASK-OPEN", sid, `=${kind}:${id}`)
+    if (timer) {
+      clearInterval(timer)
+      timer = null
+      logEvent("STOP", "-", `(ask-${kind})`)
+    }
+    title(askTitle())
+  }
+
+  // A dialog closed: switch to the remaining dialog glyph, or the idle title
+  // when none is left (frames return with the resumed turn's own events).
+  const dialogResume = (type, sid) => {
+    logEvent("ASK-CLOSE", sid, `=${type}`)
+    if (askActive()) {
+      title(askTitle())
+      return
+    }
+    if (!timer) title(idleTitle())
+  }
+
+  // Defensive reset for dialogs that will never see a close event (an
+  // interrupted question tool publishes nothing).
+  const dialogClear = (reason) => {
+    pendingQ.clear()
+    pendingP.clear()
+    logEvent("ASK-CLEAR", "-", `(${reason})`)
   }
 
   return {
@@ -212,7 +280,24 @@ export const TabSpinner = async ({ directory }) => {
           return
         }
         if (type === "session.idle" || type === "session.error") {
+          if (type === "session.error" && askActive()) dialogClear("session.error")
           stop(type)
+          return
+        }
+        if (type === "question.asked" || type === "permission.asked") {
+          const id = p.id ?? ""
+          if (!id) {
+            logEvent(`${type}~ignored-no-id`, sid)
+            return
+          }
+          ;(type === "question.asked" ? pendingQ : pendingP).add(id)
+          dialogPause(type.split(".")[0], sid, id)
+          return
+        }
+        if (type === "question.replied" || type === "question.rejected" || type === "permission.replied") {
+          if (type === "permission.replied") pendingP.delete(p.requestID ?? "")
+          else pendingQ.delete(p.requestID ?? "")
+          dialogResume(type, sid)
           return
         }
         if (type === "message.updated" && p.info?.role === "user") {
@@ -222,6 +307,12 @@ export const TabSpinner = async ({ directory }) => {
             return
           }
           if (mid) lastUserId = mid
+          // A new user prompt aborts the blocked run; interrupted dialogs
+          // never emit a close event, so clear them here.
+          if (mid && askActive()) {
+            dialogClear("new-user-msg")
+            title(idleTitle())
+          }
           // Arms the GATE only, never starts the animation: a real turn is
           // always confirmed by status:busy or deltas within ~1s, while the
           // trailing metadata update (fresh/empty id in run mode, ~200ms

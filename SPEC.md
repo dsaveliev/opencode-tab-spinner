@@ -4,7 +4,10 @@ Status: IMPLEMENTED — v1.0.0 shipped 2026-10-01. Amendments:
 - plugin loader requires every export to be a plugin factory →
   test surface attached as TabSpinner properties (single file kept);
 - user message arms the gate only (run-mode straggler fix);
-- config-array resolves registry packages only on 1.18.x (README C).
+- config-array resolves registry packages only on 1.18.x (README C);
+- v1.1.0: dialog glyphs — an open question/permission dialog freezes the
+  animation and shows "?" / "!" in the title (events verified against
+  opencode 1.18.31 source).
 
 ## Objective
 
@@ -96,6 +99,10 @@ export default TabSpinner
 | `TAB_SPINNER_FRAME_MS` | `120` | frame interval |
 | `TAB_SPINNER_TITLE` | `{frame} {project}` | busy title template |
 | `TAB_SPINNER_TITLE_IDLE` | `{idle} {project}` | idle title template |
+| `TAB_SPINNER_QUESTION` | `?` | glyph while a question dialog is open |
+| `TAB_SPINNER_PERMISSION` | `!` | glyph while a tool confirmation is open |
+| `TAB_SPINNER_TITLE_QUESTION` | `{question} {project}` | question title template |
+| `TAB_SPINNER_TITLE_PERMISSION` | `{permission} {project}` | permission title template |
 | `TAB_SPINNER_LOG` | (off) | full diagnostic journal file |
 | `TAB_SPINNER_DEBUG` | (off) | `1` → terse stderr diagnostics |
 
@@ -112,6 +119,15 @@ START:  message.* events while armed (stragglers after a stop are ignored
 STOP+DISARM: session.status idle | session.idle | session.error  (instant)
 STOP (visual only, gate stays armed): silence > SILENCE_MS — the model
         produces no events during reasoning; first delta restarts instantly
+ASK-FREEZE: question.asked | permission.asked — freeze the animation (gate
+        stays armed) and write the dialog title; "?" beats "!" when both
+        are open; STOP paths (idle flaps, silence, error) must show the
+        dialog glyph, never the idle glyph, while a dialog is open
+ASK-RESUME: question.replied | question.rejected | permission.replied —
+        remaining dialog glyph, else the idle title; frames return with the
+        resumed turn's own events
+ASK-CLEAR (defensive): session.error | a NEW user message — an interrupted
+        question tool publishes no close event; stale glyphs are reset
 WRITER: held fd; dedup on success only; >=10 consecutive write failures
         disable the writer permanently (dead TTY guard); handler body is
         try/catch-wrapped — hostile payloads never throw into the host
@@ -149,6 +165,19 @@ WRITER: held fd; dedup on success only; >=10 consecutive write failures
    re-arm — arm only on a new `info.id`.
 4. Reasoning phases emit no events; silence must stop the animation visually
    but must NOT disarm the gate.
+
+### The v1.1 dialog lessons (regression-protected)
+
+5. Dialogs emit dedicated events (`question.asked|replied|rejected`,
+   `permission.asked|replied`) and plugins receive every EventV2 event —
+   verified in opencode 1.18.31 source; the question tool blocks the run
+   inside the busy window, so the spinner would otherwise spin (or
+   silence-stop to the idle glyph) while the dialog waits.
+6. `session.status` idle flaps bracket every LLM call and WILL arrive while
+   a dialog is open — the idle glyph must never overwrite the dialog glyph.
+7. An interrupted question tool publishes NO close event (only TUI
+   dismiss/answer paths do) — stale glyphs are cleared defensively by a new
+   user message or `session.error`.
 
 ## Success Criteria
 

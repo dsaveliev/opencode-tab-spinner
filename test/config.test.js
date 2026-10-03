@@ -63,3 +63,29 @@ test('title templates fall back to defaults when emptied by sanitization', () =>
   const c = parseConfig({ TAB_SPINNER_TITLE: '\x1b\x07' })
   assert.equal(c.titleBusy, '{frame} {project}')
 })
+
+test('dialog defaults: question "?", permission "!", standard templates', () => {
+  const c = parseConfig({})
+  assert.equal(c.question, '?')
+  assert.equal(c.permission, '!')
+  assert.equal(c.titleQuestion, '{question} {project}')
+  assert.equal(c.titlePermission, '{permission} {project}')
+})
+
+test('dialog glyphs and templates are sanitized; emptied values fall back', () => {
+  const c = parseConfig({
+    TAB_SPINNER_QUESTION: '?\x1b[2J!',
+    TAB_SPINNER_PERMISSION: '\x1b\x07',
+    TAB_SPINNER_TITLE_QUESTION: '{question}\x1b {project}\x07',
+    TAB_SPINNER_TITLE_PERMISSION: '\x1b\x07',
+  })
+  assert.equal(c.question, '?!')
+  assert.equal(c.permission, '!', 'sanitized-to-empty glyph falls back')
+  assert.equal(c.titleQuestion, '{question} {project}')
+  assert.equal(c.titlePermission, '{permission} {project}')
+})
+
+test('renderTemplate substitutes question and permission tokens', () => {
+  assert.equal(renderTemplate('{question} {project}', { question: '?', project: 'Atlas' }), '? Atlas')
+  assert.equal(renderTemplate('{permission}|{project}', { permission: '!', project: 'X' }), '!|X')
+})

@@ -8,11 +8,14 @@
 
 An [opencode](https://opencode.ai) plugin that animates your terminal tab
 title while the agent is working — the behavior Claude Code users know:
-a spinner while the model runs, a check mark when it waits for you.
+a spinner while the model runs, a check mark when it waits for you, and a
+question mark the moment the model asks you something.
 
 ```
 tab title while working:   ⠋ myproject  ⠙ myproject  ⠹ myproject …
 tab title when idle:       ✓ myproject
+tab title asking you:      ? myproject   (question tool)
+                           ! myproject   (tool confirmation)
 ```
 
 Works with any OSC-capable terminal: **Ghostty**, Kitty, WezTerm, iTerm2,
@@ -31,9 +34,13 @@ them and writes an OSC 0 title sequence to the TUI process's own `/dev/tty`
 - a trailing metadata update of your last message (arriving ~60 ms after
   the turn ends) is recognized and ignored — the spinner never resurrects
   after a finished turn
+- `question.asked` / `permission.asked` freeze the animation and switch the
+  title to a dialog glyph (`?` / `!`) until you answer — the idle flap that
+  brackets every LLM call never overwrites it, and a dialog left without a
+  close event (an aborted run) is cleared by your next message
 
 The signal contract was verified empirically against opencode 1.18.x and is
-protected by 23 regression tests, several of them rehearsals of real
+protected by 41 regression tests, several of them rehearsals of real
 production incidents.
 
 ## Install
@@ -81,14 +88,18 @@ Everything is optional environment variables:
 | `TAB_SPINNER_FRAME_MS` | `120` | frame interval (20–2000) |
 | `TAB_SPINNER_TITLE` | `{frame} {project}` | busy title template |
 | `TAB_SPINNER_TITLE_IDLE` | `{idle} {project}` | idle title template |
+| `TAB_SPINNER_QUESTION` | `?` | glyph while a question dialog is open |
+| `TAB_SPINNER_PERMISSION` | `!` | glyph while a tool confirmation is open |
+| `TAB_SPINNER_TITLE_QUESTION` | `{question} {project}` | question title template |
+| `TAB_SPINNER_TITLE_PERMISSION` | `{permission} {project}` | permission title template |
 | `TAB_SPINNER_SILENCE_MS` | `12000` | quiet threshold after which the animation pauses visually (200–120000) |
 | `TAB_SPINNER_TTY` | `/dev/tty` | title sink (useful for tests) |
 | `TAB_SPINNER_LOG` | off | full diagnostic journal file |
 | `TAB_SPINNER_DEBUG` | off | `1` — terse stderr diagnostics |
 
-Templates substitute `{frame}`, `{idle}`, `{project}`. All user-supplied
-strings are sanitized: escape sequences are stripped so the title can never
-be broken or injected.
+Templates substitute `{frame}`, `{idle}`, `{question}`, `{permission}`,
+`{project}`. All user-supplied strings are sanitized: escape sequences are
+stripped so the title can never be broken or injected.
 
 Examples:
 
@@ -96,6 +107,7 @@ Examples:
 TAB_SPINNER_FRAMES=clock TAB_SPINNER_IDLE='●' oc
 TAB_SPINNER_FRAMES='>> == --' TAB_SPINNER_TITLE='[{frame}] {project}' oc
 TAB_SPINNER_TITLE_IDLE='{project} — done' oc
+TAB_SPINNER_QUESTION='❓' TAB_SPINNER_PERMISSION='‼' oc
 ```
 
 ## Troubleshooting
@@ -108,10 +120,13 @@ TAB_SPINNER_LOG=/tmp/tab-spinner.log opencode
 ```
 
 - **Spinner runs while nothing happens** — check the journal for
-  `~ignored-dupe-user` and `STOP(status=idle)`; if events look sane, file an
-  issue with the journal excerpt.
+  `~ignored-dupe-user` and `STOP(status=idle)`; if events look sane, file
+  an issue with the journal excerpt.
 - **Spinner pauses during long thinking** — reasoning phases emit no events;
   raise `TAB_SPINNER_SILENCE_MS`.
+- **Question mark stuck after an aborted run** — a dialog interrupted
+  without an answer publishes no close event; your next message or any
+  session error clears it (journal: `ASK-CLEAR`).
 - **Nothing appears** — your terminal must support OSC 0 titles (Ghostty,
   Kitty, WezTerm, iTerm2 do); check that the title is not overridden by your
   shell's own integration.
@@ -125,7 +140,7 @@ unknown event shapes are ignored, an unavailable TTY never crashes headless
 ## Development
 
 ```bash
-npm test        # node --test test/   (23 tests, no dependencies)
+npm test        # node --test test/   (41 tests, no dependencies)
 npm run check   # node --check src/tab-spinner.js
 npm run pack:check
 ```
